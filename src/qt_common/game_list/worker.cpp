@@ -511,6 +511,14 @@ void GameListWorker::ScanFileSystem(ScanTarget target, const std::vector<std::fi
                 provider->AddEntry(FileSys::TitleType::Application,
                                    FileSys::GetCRTypeFromNCAType(FileSys::NCA{file}.GetType()),
                                    program_id, file);
+            } else if (res2 == Loader::ResultStatus::Success && program_id != 0 &&
+                       (file_type == Loader::FileType::NUP ||
+                        file_type == Loader::FileType::DeconstructedRomDirectory)) {
+                // NUP packages and extracted ExeFS/RomFS folders (common for Switch 2 dumps)
+                // carry no NCAs. Register the file itself as the program entry so the Home
+                // Menu can list the title and launch it by its application id.
+                provider->AddEntry(FileSys::TitleType::Application,
+                                   FileSys::ContentRecordType::Program, program_id, file);
             } else if (Settings::values.ext_content_from_game_dirs.GetValue() &&
                        (file_type == Loader::FileType::XCI || file_type == Loader::FileType::XCZ ||
                         file_type == Loader::FileType::NSP || file_type == Loader::FileType::NSZ)) {
@@ -591,11 +599,6 @@ void GameListWorker::ScanFileSystem(ScanTarget target, const std::vector<std::fi
     for (const auto& path : files) {
         if (stop_requested) {
             break;
-        }
-        // Loose executables cannot contribute NCA content to the manual provider.
-        if (target == ScanTarget::FillManualContentProvider &&
-            IsExtractedNCAMain(Common::FS::PathToUTF8String(path))) {
-            continue;
         }
         process_candidate(path);
     }
