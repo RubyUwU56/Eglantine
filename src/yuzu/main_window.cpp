@@ -554,6 +554,7 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     // to prevent the UI from blowing up.
     UpdateUITheme();
 
+    bool launched_from_args = false;
     if (QStringList args = QApplication::arguments(); args.size() >= 2) {
         QList<QByteArray> qba{};
         for (auto const& e : args)
@@ -577,11 +578,15 @@ MainWindow::MainWindow(bool has_broken_vulkan)
             // Frontend launches must be able to use saved settings without an interactive prompt.
             BootGame(QString::fromStdString(lp.filepath), ApplicationAppletParameters(),
                      StartGameType::Normal, false);
+            launched_from_args = true;
         } else if (lp.launch_setup) {
             LaunchFirmwareApplet(u64(Service::AM::AppletProgramId::Starter), std::nullopt);
+            launched_from_args = true;
         } else if (lp.launch_qlaunch) {
             LaunchFirmwareApplet(u64(Service::AM::AppletProgramId::QLaunch), std::nullopt);
+            launched_from_args = true;
         } else if (lp.launch_hlaunch) {
+            launched_from_args = true;
             std::filesystem::path const sd_dir =
                 Common::FS::GetEdenPathString(Common::FS::EdenPath::SDMCDir);
             auto const hbl_path = (sd_dir / "atmosphere" / "hbl.nsp").string();
@@ -591,6 +596,11 @@ MainWindow::MainWindow(bool has_broken_vulkan)
         }
     } else {
         MaybeStartMcpServer(false, std::nullopt, false);
+    }
+
+    // Boot straight into the Home Menu when requested and nothing else was launched.
+    if (!launched_from_args && Settings::values.boot_into_home_menu.GetValue()) {
+        LaunchFirmwareApplet(u64(Service::AM::AppletProgramId::QLaunch), std::nullopt);
     }
 }
 

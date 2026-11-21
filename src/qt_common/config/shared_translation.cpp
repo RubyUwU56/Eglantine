@@ -52,6 +52,9 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
     INSERT(Settings, enable_overlay, tr("Enable Overlay Applet"),
            tr("Enables Horizon\'s built-in overlay applet. Press and hold the home button for 1 "
               "second to show it."));
+    INSERT(Settings, boot_into_home_menu, tr("Boot into Home Menu on startup"),
+           tr("Launches the Home Menu applet from the installed firmware when Eglantine starts "
+              "without a game or launch argument."));
 
     // Audio
     INSERT(Settings, sink_id, tr("Output Engine:"), QString());
