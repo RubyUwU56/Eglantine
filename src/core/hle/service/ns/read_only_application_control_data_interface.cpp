@@ -15,6 +15,8 @@
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/vfs/vfs.h"
+#include "core/core.h"
+#include "core/file_sys/registered_cache.h"
 #include "core/file_sys/vfs/vfs_vector.h"
 #include "core/loader/loader.h"
 #include "core/hle/kernel/k_process.h"
