@@ -5,11 +5,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cstring>
+#include <filesystem>
 #include <vector>
 #include <optional>
 #include <string>
 
 #include "common/stb.h"
+#include "common/fs/file.h"
+#include "common/fs/path_util.h"
 #include "common/logging.h"
 #include "common/settings.h"
 #include "core/file_sys/control_metadata.h"
@@ -39,6 +43,30 @@ namespace {
 // Titles that are not stored as NCAs (extracted ExeFS/RomFS folders, NUP/NX packages) have no
 // Control NCA, so PatchManager cannot find their NACP or icon. Fall back to asking the loader
 // of the program entry directly, which reads the same data the game list shows.
+// The frontend game list writes the name and a 256x256 JPEG icon it shows for titles without
+// control NCAs (NUP/NX packages, extracted ExeFS folders) to <eden dir>/game_art/<id>/.
+std::filesystem::path HomeMenuCacheDir(u64 application_id) {
+    return Common::FS::GetEdenPath(Common::FS::EdenPath::EdenDir) / "game_art" /
+           fmt::format("{:016X}", application_id);
+}
+
+std::unique_ptr<FileSys::NACP> MakeNacpWithName(const std::string& name) {
+    FileSys::RawNACP raw{};
+    for (auto& entry : raw.language_entries.language_entries) {
+        std::memcpy(entry.application_name.data(), name.data(),
+                    std::min(name.size(), entry.application_name.size() - 1));
+    }
+    raw.supported_languages = static_cast<FileSys::SupportedLanguage>(0xFFFFFFFF);
+    raw.screenshot_enabled = true;
+    constexpr std::string_view version = "1.0.0";
+    std::memcpy(raw.version_string.data(), version.data(), version.size());
+
+    std::vector<u8> bytes(sizeof(raw));
+    std::memcpy(bytes.data(), &raw, sizeof(raw));
+    return std::make_unique<FileSys::NACP>(
+        std::make_shared<FileSys::VectorVfsFile>(std::move(bytes)));
+}
+
 FileSys::PatchManager::Metadata GetControlMetadataWithFallback(Core::System& system,
                                                                const FileSys::PatchManager& pm,
                                                                u64 application_id) {
@@ -53,24 +81,40 @@ FileSys::PatchManager::Metadata GetControlMetadataWithFallback(Core::System& sys
         return control;
     }
 
-    const auto loader = Loader::GetLoader(system, program, application_id);
-    if (loader == nullptr) {
-        return control;
-    }
-
-    auto nacp = std::make_unique<FileSys::NACP>();
-    if (loader->ReadControlData(*nacp) == Loader::ResultStatus::Success) {
-        control.first = std::move(nacp);
-    }
-
-    if (control.second == nullptr) {
-        std::vector<u8> icon;
-        if (loader->ReadIcon(icon) == Loader::ResultStatus::Success && !icon.empty()) {
-            control.second = std::make_shared<FileSys::VectorVfsFile>(std::move(icon));
+    if (const auto loader = Loader::GetLoader(system, program, application_id); loader != nullptr) {
+        auto nacp = std::make_unique<FileSys::NACP>();
+        if (loader->ReadControlData(*nacp) == Loader::ResultStatus::Success) {
+            control.first = std::move(nacp);
+        }
+        if (control.second == nullptr) {
+            std::vector<u8> icon;
+            if (loader->ReadIcon(icon) == Loader::ResultStatus::Success && !icon.empty()) {
+                control.second = std::make_shared<FileSys::VectorVfsFile>(std::move(icon));
+            }
         }
     }
 
-    LOG_INFO(Service_NS, "control data for {:016X} read from its loader (nacp={}, icon={})",
+    const auto cache_dir = HomeMenuCacheDir(application_id);
+    if (control.second == nullptr) {
+        const auto jpeg = Common::FS::ReadStringFromFile(cache_dir / "home_icon.jpg",
+                                                         Common::FS::FileType::BinaryFile);
+        if (!jpeg.empty()) {
+            control.second = std::make_shared<FileSys::VectorVfsFile>(
+                std::vector<u8>(jpeg.begin(), jpeg.end()));
+        }
+    }
+    if (control.first == nullptr) {
+        auto name = Common::FS::ReadStringFromFile(cache_dir / "home_name.txt",
+                                                   Common::FS::FileType::TextFile);
+        while (!name.empty() && (name.back() == '\n' || name.back() == '\r')) {
+            name.pop_back();
+        }
+        if (!name.empty()) {
+            control.first = MakeNacpWithName(name);
+        }
+    }
+
+    LOG_INFO(Service_NS, "control data for {:016X} via fallback (nacp={}, icon={})",
              application_id, control.first != nullptr, control.second != nullptr);
     return control;
 }
