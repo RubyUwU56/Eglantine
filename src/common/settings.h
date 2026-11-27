@@ -174,6 +174,8 @@ struct Values {
     Setting<AppletMode> my_page_applet_mode{linkage, AppletMode::LLE, "my_page_applet_mode",
                                             Category::LibraryApplet};
     SwitchableSetting<bool> enable_overlay{linkage, false, "enable_overlay", Category::LibraryApplet};
+    Setting<bool> boot_into_home_menu{linkage, false, "boot_into_home_menu",
+                                      Category::LibraryApplet};
 
     // Audio
     SwitchableSetting<AudioEngine> sink_id{linkage,

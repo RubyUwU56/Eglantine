@@ -15,9 +15,12 @@
 #include <utility>
 #include <vector>
 
+#include <QBuffer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
+#include <QSaveFile>
 #include <QSettings>
 
 #include "common/fs/file.h"
@@ -38,6 +41,7 @@
 #include "core/loader/nx.h"
 
 #include "qt_common/config/uisettings.h"
+#include "qt_common/util/game_art.h"
 #include "qt_common/qt_common.h"
 
 #include "qt_common/game_list/game_list_p.h"
@@ -45,6 +49,60 @@
 #include "qt_common/game_list/model.h"
 #include "qt_common/game_list/discovery.h"
 #include "qt_common/game_list/worker.h"
+
+namespace {
+
+bool WriteFileIfChanged(const QString& path, const QByteArray& data) {
+    QFile existing(path);
+    if (existing.open(QIODevice::ReadOnly) && existing.readAll() == data) {
+        return true;
+    }
+    existing.close();
+    if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+        return false;
+    }
+    QSaveFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write(data) == data.size() && file.commit();
+}
+
+/// NUP/NX packages and extracted folders have no control NCA, so the Home Menu would show a
+/// blank "?" tile. Hand it the name and icon the game list uses, as a JPEG the guest can decode.
+void WriteHomeMenuControlCache(u64 program_id, const std::string& name,
+                               const std::vector<u8>& loader_icon) {
+    if (program_id == 0) {
+        return;
+    }
+    const QString dir = QFileInfo(QtCommon::GameArt::IconPath(program_id)).absolutePath();
+
+    if (!name.empty() && name != " ") {
+        WriteFileIfChanged(dir + QStringLiteral("/home_name.txt"),
+                           QByteArray::fromStdString(name));
+    }
+
+    QImage image;
+    if (QtCommon::GameArt::HasIcon(program_id)) {
+        image.load(QtCommon::GameArt::IconPath(program_id));
+    }
+    if (image.isNull() && !loader_icon.empty()) {
+        image.loadFromData(loader_icon.data(), static_cast<int>(loader_icon.size()));
+    }
+    if (image.isNull()) {
+        return;
+    }
+    image = image.convertToFormat(QImage::Format_RGB888)
+                .scaled(256, 256, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+    if (image.width() != 256 || image.height() != 256) {
+        image = image.copy((image.width() - 256) / 2, (image.height() - 256) / 2, 256, 256);
+    }
+    QByteArray jpeg;
+    QBuffer buffer(&jpeg);
+    buffer.open(QIODevice::WriteOnly);
+    if (image.save(&buffer, "JPG", 92)) {
+        WriteFileIfChanged(dir + QStringLiteral("/home_icon.jpg"), jpeg);
+    }
+}
+
+} // namespace
 
 namespace {
 
@@ -511,6 +569,14 @@ void GameListWorker::ScanFileSystem(ScanTarget target, const std::vector<std::fi
                 provider->AddEntry(FileSys::TitleType::Application,
                                    FileSys::GetCRTypeFromNCAType(FileSys::NCA{file}.GetType()),
                                    program_id, file);
+            } else if (res2 == Loader::ResultStatus::Success && program_id != 0 &&
+                       (file_type == Loader::FileType::NUP || file_type == Loader::FileType::NX ||
+                        file_type == Loader::FileType::DeconstructedRomDirectory)) {
+                // NUP/NX packages and extracted ExeFS/RomFS folders (common for Switch 2 dumps)
+                // carry no NCAs. Register the file itself as the program entry so the Home
+                // Menu can list the title and launch it by its application id.
+                provider->AddEntry(FileSys::TitleType::Application,
+                                   FileSys::ContentRecordType::Program, program_id, file);
             } else if (Settings::values.ext_content_from_game_dirs.GetValue() &&
                        (file_type == Loader::FileType::XCI || file_type == Loader::FileType::XCZ ||
                         file_type == Loader::FileType::NSP || file_type == Loader::FileType::NSZ)) {
@@ -541,6 +607,12 @@ void GameListWorker::ScanFileSystem(ScanTarget target, const std::vector<std::fi
                     name = QFileInfo(QString::fromStdString(physical_name))
                                .completeBaseName()
                                .toStdString();
+                }
+
+                if (const auto type = app_loader->GetFileType();
+                    type == Loader::FileType::NUP || type == Loader::FileType::NX ||
+                    type == Loader::FileType::DeconstructedRomDirectory) {
+                    WriteHomeMenuControlCache(id, name, icon);
                 }
 
                 const auto content =
@@ -591,11 +663,6 @@ void GameListWorker::ScanFileSystem(ScanTarget target, const std::vector<std::fi
     for (const auto& path : files) {
         if (stop_requested) {
             break;
-        }
-        // Loose executables cannot contribute NCA content to the manual provider.
-        if (target == ScanTarget::FillManualContentProvider &&
-            IsExtractedNCAMain(Common::FS::PathToUTF8String(path))) {
-            continue;
         }
         process_candidate(path);
     }
