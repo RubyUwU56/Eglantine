@@ -36,7 +36,7 @@ namespace Service::NS {
 
 namespace {
 
-// Titles that are not stored as NCAs (extracted ExeFS/RomFS folders, NUP packages) have no
+// Titles that are not stored as NCAs (extracted ExeFS/RomFS folders, NUP/NX packages) have no
 // Control NCA, so PatchManager cannot find their NACP or icon. Fall back to asking the loader
 // of the program entry directly, which reads the same data the game list shows.
 FileSys::PatchManager::Metadata GetControlMetadataWithFallback(Core::System& system,

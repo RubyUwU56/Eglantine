@@ -512,9 +512,9 @@ void GameListWorker::ScanFileSystem(ScanTarget target, const std::vector<std::fi
                                    FileSys::GetCRTypeFromNCAType(FileSys::NCA{file}.GetType()),
                                    program_id, file);
             } else if (res2 == Loader::ResultStatus::Success && program_id != 0 &&
-                       (file_type == Loader::FileType::NUP ||
+                       (file_type == Loader::FileType::NUP || file_type == Loader::FileType::NX ||
                         file_type == Loader::FileType::DeconstructedRomDirectory)) {
-                // NUP packages and extracted ExeFS/RomFS folders (common for Switch 2 dumps)
+                // NUP/NX packages and extracted ExeFS/RomFS folders (common for Switch 2 dumps)
                 // carry no NCAs. Register the file itself as the program entry so the Home
                 // Menu can list the title and launch it by its application id.
                 provider->AddEntry(FileSys::TitleType::Application,
